@@ -1,0 +1,26 @@
+## IDF Component Manager Manifest File
+## Documentation: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/tools/idf-component-manager.html
+
+dependencies:
+  # The following will be available for all targets
+  # component_name: "~1.0.0"
+
+  # Example component dependencies (uncomment as needed):
+  # espressif/led_strip: "^2.0.0"
+  # espressif/button: "^2.5.0"
+  # idf: ">=4.4.0"
+
+  ## Required IDF version
+  idf:
+    version: ">=4.4.0"
+
+## Optionally, define component-specific dependencies
+targets:
+  - esp32
+  - esp32s2
+  - esp32c3
+  - esp32s3
+
+## Component information
+version: "1.0.0"
+description: "Self-Balancing Robot ESP32 Project"

@@ -1,0 +1,41 @@
+# Include Directory
+
+This directory is intended for project header files for the Self-Balancing Robot project.
+
+A header file is a file containing C declarations and macro definitions
+to be shared between several project source files. You request the use of a
+header file in your project source file (C, C++, etc) located in `src` folder
+by including it, with the C preprocessing directive `#include`.
+
+Example usage:
+
+```cpp
+// src/main.cpp
+#include "robot_config.h"
+#include "sensors.h"
+#include "motor_controller.h"
+
+extern "C" void app_main(void)
+{
+    // Initialize robot components
+    init_sensors();
+    init_motors();
+    // ...
+}
+```
+
+## Recommended Header Files for Self-Balancing Robot:
+
+- `robot_config.h` - Configuration constants and pin definitions
+- `sensors.h` - IMU/gyroscope sensor interfaces
+- `motor_controller.h` - Motor control functions
+- `pid_controller.h` - PID algorithm implementation
+- `balance_algorithm.h` - Self-balancing logic
+
+Including a header file produces the same results as copying the header file
+into each source file that needs it. Such copying would be time-consuming
+and error-prone. With a header file, the related declarations appear
+in only one place.
+
+Read more about using header files in official GCC documentation:
+https://gcc.gnu.org/onlinedocs/cpp/Header-Files.html

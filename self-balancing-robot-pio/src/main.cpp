@@ -25,9 +25,71 @@ extern "C" void app_main(void)
     
     ESP_LOGI(TAG, "Free heap size: %d", esp_get_free_heap_size());
     
+    // Initialize and enable motor driver
+    ESP_LOGI(TAG, "Initializing motor driver...");
+    esp_err_t ret = motor_driver_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize motor driver: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ret = motor_driver_enable();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable motor driver: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Starting motor tests in 2 seconds...");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    
     // Main application loop
     while (1) {
-        ESP_LOGI(TAG, "Self-Balancing Robot is running...");
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Delay 5 seconds
+        ESP_LOGI(TAG, "=== Motor Test Cycle ===");
+        
+        // Test Motor A forward
+        ESP_LOGI(TAG, "Motor A Forward");
+        motor_set_speed(MOTOR_A, MOTOR_FORWARD, 100);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        motor_stop(MOTOR_A);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Test Motor A backward  
+        ESP_LOGI(TAG, "Motor A Backward");
+        motor_set_speed(MOTOR_A, MOTOR_BACKWARD, 100);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        motor_stop(MOTOR_A);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Test Motor B forward
+        ESP_LOGI(TAG, "Motor B Forward");
+        motor_set_speed(MOTOR_B, MOTOR_FORWARD, 100);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        motor_stop(MOTOR_B);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Test Motor B backward
+        ESP_LOGI(TAG, "Motor B Backward");
+        motor_set_speed(MOTOR_B, MOTOR_BACKWARD, 100);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        motor_stop(MOTOR_B);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Test both motors forward
+        ESP_LOGI(TAG, "Both Motors Forward");
+        motor_set_speed(MOTOR_A, MOTOR_FORWARD, 80);
+        motor_set_speed(MOTOR_B, MOTOR_FORWARD, 80);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        motor_stop_all();
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Test both motors backward
+        ESP_LOGI(TAG, "Both Motors Backward");
+        motor_set_speed(MOTOR_A, MOTOR_BACKWARD, 80);
+        motor_set_speed(MOTOR_B, MOTOR_BACKWARD, 80);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        motor_stop_all();
+        
+        ESP_LOGI(TAG, "Test cycle complete. Waiting 3 seconds...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
     }
 }

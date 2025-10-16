@@ -6,10 +6,7 @@ static bool initialized = false;
 esp_err_t motor_driver_init(void) {
     ESP_LOGI(TAG, "Initializing motor driver...");
 
-    // Configure GPIO pins
     gpio_config_t io_conf = {};
-
-    // Configure control pins as outputs
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = (1ULL << MOTOR_STANDBY_PIN) | (1ULL << MOTOR_INA1_PIN) |
@@ -24,14 +21,12 @@ esp_err_t motor_driver_init(void) {
         return ret;
     }
 
-    // Initialize all control pins to safe state
-    gpio_set_level(MOTOR_STANDBY_PIN, 0);  // Disable motors initially
+    gpio_set_level(MOTOR_STANDBY_PIN, 0);
     gpio_set_level(MOTOR_INA1_PIN, 0);
     gpio_set_level(MOTOR_INA2_PIN, 0);
     gpio_set_level(MOTOR_INB1_PIN, 0);
     gpio_set_level(MOTOR_INB2_PIN, 0);
 
-    // Configure PWM timer for Motor A
     ledc_timer_config_t ledc_timer_a = {.speed_mode = LEDC_LOW_SPEED_MODE,
                                         .timer_num = LEDC_TIMER_0,
                                         .duty_resolution = MOTOR_PWM_RESOLUTION,
@@ -43,7 +38,6 @@ esp_err_t motor_driver_init(void) {
         return ret;
     }
 
-    // Configure PWM channel for Motor A
     ledc_channel_config_t ledc_channel_a = {.gpio_num = MOTOR_PWMA_PIN,
                                             .speed_mode = LEDC_LOW_SPEED_MODE,
                                             .channel = LEDC_CHANNEL_0,
@@ -56,7 +50,6 @@ esp_err_t motor_driver_init(void) {
         return ret;
     }
 
-    // Configure PWM timer for Motor B
     ledc_timer_config_t ledc_timer_b = {.speed_mode = LEDC_LOW_SPEED_MODE,
                                         .timer_num = LEDC_TIMER_1,
                                         .duty_resolution = MOTOR_PWM_RESOLUTION,
@@ -68,7 +61,6 @@ esp_err_t motor_driver_init(void) {
         return ret;
     }
 
-    // Configure PWM channel for Motor B
     ledc_channel_config_t ledc_channel_b = {.gpio_num = MOTOR_PWMB_PIN,
                                             .speed_mode = LEDC_LOW_SPEED_MODE,
                                             .channel = LEDC_CHANNEL_1,
@@ -121,7 +113,6 @@ esp_err_t motor_set_speed(motor_id_t motor, motor_direction_t direction, uint8_t
     esp_err_t ret = ESP_OK;
 
     if (motor == MOTOR_A) {
-        // Set direction for Motor A
         switch (direction) {
             case MOTOR_FORWARD:
                 gpio_set_level(MOTOR_INA1_PIN, 1);
@@ -139,7 +130,6 @@ esp_err_t motor_set_speed(motor_id_t motor, motor_direction_t direction, uint8_t
                 break;
         }
 
-        // Set PWM duty cycle for Motor A
         ret = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, speed);
         if (ret == ESP_OK) {
             ret = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
@@ -148,7 +138,6 @@ esp_err_t motor_set_speed(motor_id_t motor, motor_direction_t direction, uint8_t
         ESP_LOGI(TAG, "Motor A: Direction=%d, Speed=%d", direction, speed);
 
     } else if (motor == MOTOR_B) {
-        // Set direction for Motor B
         switch (direction) {
             case MOTOR_FORWARD:
                 gpio_set_level(MOTOR_INB1_PIN, 1);
@@ -166,7 +155,6 @@ esp_err_t motor_set_speed(motor_id_t motor, motor_direction_t direction, uint8_t
                 break;
         }
 
-        // Set PWM duty cycle for Motor B
         ret = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, speed);
         if (ret == ESP_OK) {
             ret = ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);

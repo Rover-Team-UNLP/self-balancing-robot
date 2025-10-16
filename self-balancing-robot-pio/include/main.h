@@ -6,4 +6,5 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "motor_driver.h"
-#include "mpu6050.h" 
+#include "mpu6050.h"
+#include "encoder.h" 

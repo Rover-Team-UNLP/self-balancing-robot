@@ -9,11 +9,9 @@ static mpu6050_gyro_range_t current_gyro_range = MPU6050_GYRO_RANGE_250DPS;
 static mpu6050_accel_range_t current_accel_range = MPU6050_ACCEL_RANGE_2G;
 static mpu6050_calibration_t calibration = {0};
 
-// Scale factors
-static float gyro_scale = 131.0;     // LSB/(deg/s) for ±250°/s
-static float accel_scale = 16384.0;  // LSB/g for ±2g
+static float gyro_scale = 131.0;
+static float accel_scale = 16384.0;
 
-// I2C helper functions
 static esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data) {
     uint8_t write_buf[2] = {reg, data};
     return i2c_master_write_to_device(MPU6050_I2C_PORT, MPU6050_ADDR, write_buf, sizeof(write_buf),
@@ -29,7 +27,6 @@ static esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t *data) {
     return mpu6050_read_bytes(reg, data, 1);
 }
 
-// I2C scanner function
 static void i2c_scanner(void) {
     printf("\n");
     printf("Scanning I2C bus...\n");
@@ -67,7 +64,6 @@ esp_err_t mpu6050_init(void) {
     printf("Initializing MPU6xxx sensor...\n");
     ESP_LOGI(TAG, "Initializing MPU6xxx sensor (MPU6050/6500/9250)...");
 
-    // Configure I2C
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = MPU6050_I2C_SDA_PIN,
@@ -89,19 +85,16 @@ esp_err_t mpu6050_init(void) {
         return ret;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(100));  // Wait for sensor to stabilize
+    vTaskDelay(pdMS_TO_TICKS(100));
 
-    // Scan I2C bus to find devices
     i2c_scanner();
 
-    // Test connection
     ret = mpu6050_test_connection();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "MPU6050 not found on I2C bus");
         return ret;
     }
 
-    // Wake up MPU6050 (exit sleep mode)
     ret = mpu6050_write_byte(MPU6050_REG_PWR_MGMT_1, 0x00);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to wake up MPU6050");
@@ -109,7 +102,6 @@ esp_err_t mpu6050_init(void) {
     }
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    // Set clock source to PLL with X axis gyroscope reference
     ret = mpu6050_write_byte(MPU6050_REG_PWR_MGMT_1, 0x01);
     if (ret != ESP_OK) return ret;
 

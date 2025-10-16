@@ -1,95 +1,105 @@
 #include "main.h"
 
-static const char *TAG = "SELF_BALANCING_ROBOT";
+static const char *TAG = "MPU6050_TEST";
 
 extern "C" void app_main(void)
 {
-    ESP_LOGI(TAG, "Self-Balancing Robot Starting...");
+    // Print immediately to verify serial is working
+    printf("\n\n==================================\n");
+    printf("MPU6050 Test Starting...\n");
+    printf("==================================\n\n");
     
-    // Initialize system
-    ESP_LOGI(TAG, "ESP32 Chip info:");
+    ESP_LOGI(TAG, "MPU6050 Gyroscope Test Starting...");
+    
+    // Initialize system info
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    ESP_LOGI(TAG, "ESP32 with %d CPU cores, WiFi%s%s",
-            chip_info.cores,
-            (chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
-            (chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
+    printf("ESP32-WROOM-32 with %d CPU cores\n", chip_info.cores);
+    ESP_LOGI(TAG, "ESP32-WROOM-32 with %d CPU cores", chip_info.cores);
     
-    ESP_LOGI(TAG, "Silicon revision %d", chip_info.revision);
-    
-    // Get flash size using modern API
-    uint32_t flash_size = 0;
-    esp_flash_get_size(NULL, &flash_size);
-    ESP_LOGI(TAG, "%dMB %s flash", flash_size / (1024 * 1024),
-            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
-    
-    ESP_LOGI(TAG, "Free heap size: %d", esp_get_free_heap_size());
-    
-    // Initialize and enable motor driver
-    ESP_LOGI(TAG, "Initializing motor driver...");
-    esp_err_t ret = motor_driver_init();
+    // Initialize MPU6050
+    printf("Initializing MPU6050...\n");
+    ESP_LOGI(TAG, "Initializing MPU6050...");
+    esp_err_t ret = mpu6050_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize motor driver: %s", esp_err_to_name(ret));
-        return;
+        printf("\n*** ERROR: Failed to initialize MPU6050: %s ***\n", esp_err_to_name(ret));
+        printf("System halted. Check I2C connections:\n");
+        printf("  SDA -> GPIO21\n");
+        printf("  SCL -> GPIO22\n");
+        printf("  VCC -> 3.3V\n");
+        printf("  GND -> GND\n\n");
+        
+        ESP_LOGE(TAG, "Failed to initialize MPU6050: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "System halted. Check I2C connections:");
+        ESP_LOGE(TAG, "  SDA -> GPIO21");
+        ESP_LOGE(TAG, "  SCL -> GPIO22");
+        ESP_LOGE(TAG, "  VCC -> 3.3V");
+        ESP_LOGE(TAG, "  GND -> GND");
+        
+        while(1) {
+            printf("Waiting... (Press RESET to try again)\n");
+            vTaskDelay(pdMS_TO_TICKS(3000));
+        }
     }
     
-    ret = motor_driver_enable();
+    printf("MPU6050 initialized successfully!\n");
+    ESP_LOGI(TAG, "MPU6050 initialized successfully!");
+    
+    // Optional: Calibrate sensor
+    printf("\nStarting calibration in 3 seconds...\n");
+    printf("Place the sensor on a flat, stable surface!\n");
+    ESP_LOGI(TAG, "Starting calibration in 3 seconds...");
+    ESP_LOGI(TAG, "Place the sensor on a flat, stable surface!");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    
+    ret = mpu6050_calibrate(500);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to enable motor driver: %s", esp_err_to_name(ret));
-        return;
+        printf("WARNING: Calibration failed, continuing without calibration\n");
+        ESP_LOGW(TAG, "Calibration failed, continuing without calibration");
     }
     
-    ESP_LOGI(TAG, "Starting motor tests in 2 seconds...");
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    printf("\nStarting continuous data reading...\n");
+    printf("Data format: Accel(X,Y,Z) Gyro(X,Y,Z) Temp Pitch Roll\n\n");
+    ESP_LOGI(TAG, "Starting continuous data reading...");
+    ESP_LOGI(TAG, "Data format: Accel(X,Y,Z) Gyro(X,Y,Z) Temp Pitch Roll");
+    vTaskDelay(pdMS_TO_TICKS(1000));
     
-    // Main application loop
+    // Main loop - read and display sensor data
+    uint32_t sample_count = 0;
     while (1) {
-        ESP_LOGI(TAG, "=== Motor Test Cycle ===");
+        mpu6050_data_t data;
+        float pitch, roll;
         
-        // Test Motor A forward
-        ESP_LOGI(TAG, "Motor A Forward");
-        motor_set_speed(MOTOR_A, MOTOR_FORWARD, 100);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        motor_stop(MOTOR_A);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // Read sensor data
+        ret = mpu6050_read_data(&data);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read MPU6050 data");
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
         
-        // Test Motor A backward  
-        ESP_LOGI(TAG, "Motor A Backward");
-        motor_set_speed(MOTOR_A, MOTOR_BACKWARD, 100);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        motor_stop(MOTOR_A);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // Calculate angles
+        ret = mpu6050_get_angles(&pitch, &roll);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to calculate angles");
+        }
         
-        // Test Motor B forward
-        ESP_LOGI(TAG, "Motor B Forward");
-        motor_set_speed(MOTOR_B, MOTOR_FORWARD, 100);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        motor_stop(MOTOR_B);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // Print data to serial (every sample)
+        printf("[%lu] ", sample_count++);
+        printf("Accel: X=%6.2f Y=%6.2f Z=%6.2f m/s² | ",
+               data.accel_x, data.accel_y, data.accel_z);
+        printf("Gyro: X=%7.2f Y=%7.2f Z=%7.2f °/s | ",
+               data.gyro_x, data.gyro_y, data.gyro_z);
+        printf("Temp: %5.1f°C | ", data.temp);
+        printf("Pitch: %6.2f° Roll: %6.2f°\n", pitch, roll);
         
-        // Test Motor B backward
-        ESP_LOGI(TAG, "Motor B Backward");
-        motor_set_speed(MOTOR_B, MOTOR_BACKWARD, 100);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        motor_stop(MOTOR_B);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // Also log with ESP_LOGI every 20 samples for cleaner output
+        if (sample_count % 20 == 0) {
+            ESP_LOGI(TAG, "Sample %lu - Pitch: %.2f° Roll: %.2f° GyroZ: %.2f°/s", 
+                     sample_count, pitch, roll, data.gyro_z);
+        }
         
-        // Test both motors forward
-        ESP_LOGI(TAG, "Both Motors Forward");
-        motor_set_speed(MOTOR_A, MOTOR_FORWARD, 80);
-        motor_set_speed(MOTOR_B, MOTOR_FORWARD, 80);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        motor_stop_all();
-        vTaskDelay(pdMS_TO_TICKS(500));
-        
-        // Test both motors backward
-        ESP_LOGI(TAG, "Both Motors Backward");
-        motor_set_speed(MOTOR_A, MOTOR_BACKWARD, 80);
-        motor_set_speed(MOTOR_B, MOTOR_BACKWARD, 80);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        motor_stop_all();
-        
-        ESP_LOGI(TAG, "Test cycle complete. Waiting 3 seconds...");
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        // Read at ~50Hz (20ms delay)
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

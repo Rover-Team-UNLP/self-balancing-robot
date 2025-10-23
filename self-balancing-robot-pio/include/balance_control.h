@@ -1,11 +1,17 @@
 #ifndef BALANCE_CONTROL_H
 #define BALANCE_CONTROL_H
 
+#include <math.h>
+
+#include "encoder.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "kalman_filter.h"
+#include "motor_driver.h"
+#include "mpu6050.h"
 #include "pid_controller.h"
 
 #ifdef __cplusplus

@@ -1,12 +1,5 @@
 #include "balance_control.h"
 
-#include <math.h>
-
-#include "encoder.h"
-#include "esp_log.h"
-#include "motor_driver.h"
-#include "mpu6050.h"
-
 static const char* TAG = "BALANCE_CTRL";
 
 // Handles de tareas

@@ -1,10 +1,5 @@
 #include "kalman_filter.h"
 
-#include <math.h>
-#include <string.h>
-
-#include "esp_log.h"
-
 static const char* TAG = "KALMAN";
 
 esp_err_t kalman_init(kalman_filter_t* kf, float dt) {

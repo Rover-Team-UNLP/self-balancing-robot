@@ -1,9 +1,12 @@
 #ifndef KALMAN_FILTER_H
 #define KALMAN_FILTER_H
 
+#include <math.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "esp_err.h"
+#include "esp_log.h"
 
 #ifdef __cplusplus
 extern "C" {

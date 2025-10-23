@@ -7,3 +7,7 @@ set(PROJECT_NAME "self-balancing-robot")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(${PROJECT_NAME})
+
+idf_component_register(SRCS "main.cpp" "motor_driver.c" "mpu6050.c" "encoder.c" 
+                            "kalman_filter.c" "pid_controller.c" "balance_control.c"
+                    INCLUDE_DIRS "../include")

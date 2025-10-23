@@ -104,16 +104,32 @@ typedef struct {
     float gyro_z_offset;
 } mpu6050_calibration_t;
 
-// Function declarations
+// Inicializa el sensor MPU6xxx (MPU6050/6500/9250) con configuración I2C y registros
 esp_err_t mpu6050_init(void);
+
+// Verifica la conexión I2C leyendo el registro WHO_AM_I del sensor
 esp_err_t mpu6050_test_connection(void);
+
+// Configura el rango de medición del giroscopio (±250/500/1000/2000 °/s)
 esp_err_t mpu6050_set_gyro_range(mpu6050_gyro_range_t range);
+
+// Configura el rango de medición del acelerómetro (±2/4/8/16 g)
 esp_err_t mpu6050_set_accel_range(mpu6050_accel_range_t range);
+
+// Configura el filtro pasa-bajos digital (DLPF) para reducir ruido
 esp_err_t mpu6050_set_dlpf(mpu6050_dlpf_t dlpf);
-esp_err_t mpu6050_read_raw(mpu6050_raw_data_t *data);
-esp_err_t mpu6050_read_data(mpu6050_data_t *data);
+
+// Lee los datos crudos (raw) del sensor sin procesar
+esp_err_t mpu6050_read_raw(mpu6050_raw_data_t* data);
+
+// Lee y convierte los datos del sensor a unidades físicas (m/s², °/s, °C)
+esp_err_t mpu6050_read_data(mpu6050_data_t* data);
+
+// Calibra el sensor tomando múltiples muestras para calcular offsets
 esp_err_t mpu6050_calibrate(uint16_t samples);
-esp_err_t mpu6050_get_angles(float *pitch, float *roll);
+
+// Calcula los ángulos de inclinación pitch (cabeceo) y roll (balanceo)
+esp_err_t mpu6050_get_angles(float* pitch, float* roll);
 
 #ifdef __cplusplus
 }

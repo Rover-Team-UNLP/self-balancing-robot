@@ -3,6 +3,6 @@ idf_component_register(SRCS "main.cpp"
                             "mpu6050.c" 
                             "encoder.c" 
                             "balance_control.c" 
-                            "kalman_filter.c" 
                             "pid_controller.c"
+                            "web_interface.c"
                     INCLUDE_DIRS "../include")

@@ -58,11 +58,19 @@ float pid_compute(pid_controller_t* pid, float measured_value) {
     // Término proporcional
     float p_term = pid->kp * error;
 
-    // Término integral (con anti-windup)
-    pid->integral += error * pid->dt;
+    // Término integral (con anti-windup mejorado)
+    // Solo acumular si no estamos saturados
+    float tentative_output = p_term + pid->ki * (pid->integral + error * pid->dt);
 
-    // Anti-windup: limitar integral
-    float max_integral = pid->output_max / (pid->ki + 0.001f);
+    bool saturated = (tentative_output > pid->output_max) || (tentative_output < pid->output_min);
+
+    // Solo integrar si no estamos saturados O si el error ayuda a desaturar
+    if (!saturated || (error * (pid->output_max - tentative_output) > 0)) {
+        pid->integral += error * pid->dt;
+    }
+
+    // Clamping adicional de la integral
+    float max_integral = (pid->output_max - pid->output_min) / (2.0f * (pid->ki + 0.001f));
     if (pid->integral > max_integral) {
         pid->integral = max_integral;
     } else if (pid->integral < -max_integral) {
@@ -71,9 +79,14 @@ float pid_compute(pid_controller_t* pid, float measured_value) {
 
     float i_term = pid->ki * pid->integral;
 
-    // Término derivativo
+    // Término derivativo con filtro para reducir ruido
     float derivative = (error - pid->prev_error) / pid->dt;
-    float d_term = pid->kd * derivative;
+
+    // Filtro pasa-bajos en la derivada
+    static float filtered_derivative = 0.0f;
+    filtered_derivative = 0.7f * filtered_derivative + 0.3f * derivative;
+
+    float d_term = pid->kd * filtered_derivative;
 
     // Calcular salida total
     float output = p_term + i_term + d_term;

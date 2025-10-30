@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-static const char *TAG = "MPU6050";
+static const char* TAG = "MPU6050";
 static bool initialized = false;
 static mpu6050_gyro_range_t current_gyro_range = MPU6050_GYRO_RANGE_250DPS;
 static mpu6050_accel_range_t current_accel_range = MPU6050_ACCEL_RANGE_2G;
@@ -18,12 +18,12 @@ static esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data) {
                                       pdMS_TO_TICKS(1000));
 }
 
-static esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *data, size_t len) {
+static esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t* data, size_t len) {
     return i2c_master_write_read_device(MPU6050_I2C_PORT, MPU6050_ADDR, &reg, 1, data, len,
                                         pdMS_TO_TICKS(1000));
 }
 
-static esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t *data) {
+static esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t* data) {
     return mpu6050_read_bytes(reg, data, 1);
 }
 
@@ -218,7 +218,7 @@ esp_err_t mpu6050_set_dlpf(mpu6050_dlpf_t dlpf) {
     return mpu6050_write_byte(MPU6050_REG_CONFIG, dlpf);
 }
 
-esp_err_t mpu6050_read_raw(mpu6050_raw_data_t *data) {
+esp_err_t mpu6050_read_raw(mpu6050_raw_data_t* data) {
     if (!initialized) {
         ESP_LOGE(TAG, "MPU6050 not initialized");
         return ESP_ERR_INVALID_STATE;
@@ -244,7 +244,7 @@ esp_err_t mpu6050_read_raw(mpu6050_raw_data_t *data) {
     return ESP_OK;
 }
 
-esp_err_t mpu6050_read_data(mpu6050_data_t *data) {
+esp_err_t mpu6050_read_data(mpu6050_data_t* data) {
     mpu6050_raw_data_t raw_data;
     esp_err_t ret = mpu6050_read_raw(&raw_data);
 
@@ -268,10 +268,16 @@ esp_err_t mpu6050_read_data(mpu6050_data_t *data) {
 }
 
 esp_err_t mpu6050_calibrate(uint16_t samples) {
-    ESP_LOGI(TAG, "Starting calibration with %d samples...", samples);
-    ESP_LOGI(TAG, "Keep the sensor still and level!");
+    if (!initialized) {
+        ESP_LOGE(TAG, "MPU6050 not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    vTaskDelay(pdMS_TO_TICKS(2000));  // Give user time to position sensor
+    ESP_LOGI(TAG, "Starting calibration with %d samples...", samples);
+    ESP_LOGI(TAG, "*** IMPORTANT: Place robot in VERTICAL position! ***");
+    ESP_LOGI(TAG, "Keep the robot UPRIGHT and STILL!");
+
+    vTaskDelay(pdMS_TO_TICKS(3000));  // Más tiempo para posicionar
 
     float accel_x_sum = 0, accel_y_sum = 0, accel_z_sum = 0;
     float gyro_x_sum = 0, gyro_y_sum = 0, gyro_z_sum = 0;
@@ -285,9 +291,9 @@ esp_err_t mpu6050_calibrate(uint16_t samples) {
             return ret;
         }
 
-        accel_x_sum += raw_data.accel_x_raw / accel_scale * 9.81;
-        accel_y_sum += raw_data.accel_y_raw / accel_scale * 9.81;
-        accel_z_sum += raw_data.accel_z_raw / accel_scale * 9.81;
+        accel_x_sum += raw_data.accel_x_raw / accel_scale * 9.81f;
+        accel_y_sum += raw_data.accel_y_raw / accel_scale * 9.81f;
+        accel_z_sum += raw_data.accel_z_raw / accel_scale * 9.81f;
 
         gyro_x_sum += raw_data.gyro_x_raw / gyro_scale;
         gyro_y_sum += raw_data.gyro_y_raw / gyro_scale;
@@ -296,9 +302,10 @@ esp_err_t mpu6050_calibrate(uint16_t samples) {
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    calibration.accel_x_offset = accel_x_sum / samples;
-    calibration.accel_y_offset = accel_y_sum / samples;
-    calibration.accel_z_offset = (accel_z_sum / samples) - 9.81;  // Subtract gravity
+    // Cuando está VERTICAL: Z apunta hacia arriba (1g), X e Y cerca de 0
+    calibration.accel_x_offset = accel_x_sum / samples;            // Debería ser ~0
+    calibration.accel_y_offset = accel_y_sum / samples;            // Debería ser ~0
+    calibration.accel_z_offset = (accel_z_sum / samples) - 9.81f;  // Z - gravity
 
     calibration.gyro_x_offset = gyro_x_sum / samples;
     calibration.gyro_y_offset = gyro_y_sum / samples;
@@ -313,7 +320,7 @@ esp_err_t mpu6050_calibrate(uint16_t samples) {
     return ESP_OK;
 }
 
-esp_err_t mpu6050_get_angles(float *pitch, float *roll) {
+esp_err_t mpu6050_get_angles(float* pitch, float* roll) {
     mpu6050_data_t data;
     esp_err_t ret = mpu6050_read_data(&data);
 
@@ -322,10 +329,8 @@ esp_err_t mpu6050_get_angles(float *pitch, float *roll) {
     }
 
     // Calculate pitch and roll from accelerometer
-    *pitch = atan2(data.accel_y, sqrt(data.accel_x * data.accel_x + data.accel_z * data.accel_z)) *
-             180.0 / M_PI;
-    *roll = atan2(-data.accel_x, sqrt(data.accel_y * data.accel_y + data.accel_z * data.accel_z)) *
-            180.0 / M_PI;
+    *pitch = atan2f(data.accel_y, data.accel_z) * 180.0f / M_PI;
+    *roll = atan2f(-data.accel_x, data.accel_z) * 180.0f / M_PI;
 
     return ESP_OK;
 }

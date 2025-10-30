@@ -1,4 +1,7 @@
 #include <stdio.h>
+
+#include "balance_control.h"
+#include "encoder.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_log.h"
@@ -7,5 +10,4 @@
 #include "freertos/task.h"
 #include "motor_driver.h"
 #include "mpu6050.h"
-#include "encoder.h" 
-#include "balance_control.h"
+#include "web_interface.h"

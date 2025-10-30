@@ -1,200 +1,273 @@
 #include "balance_control.h"
 
-static const char* TAG = "BALANCE_CTRL";
+static const char* TAG = "BALANCE_V2";
 
 // Handles de tareas
 static TaskHandle_t sensor_task_handle = NULL;
 static TaskHandle_t control_task_handle = NULL;
-static TaskHandle_t motor_task_handle = NULL;
 
-// Colas de comunicación entre tareas
-static QueueHandle_t sensor_queue = NULL;
-static QueueHandle_t control_queue = NULL;
+// Mutex para proteger variables compartidas
+static SemaphoreHandle_t xMutex = NULL;
 
-// Filtros y controladores
-static kalman_filter_t kalman;
-static pid_controller_t pid_angle;
-static pid_controller_t pid_position;
+// Variables compartidas
+static volatile float angle_current = 0.0f;
+static volatile float position_avg = 0.0f;
+static volatile float velocity_avg = 0.0f;
 
 // Estado del sistema
 static bool system_running = false;
+
+// Controlador PID
+static pid_controller_t pid_angle;
+static pid_controller_t pid_position;
 
 // Conversiones
 #define DEG_TO_RAD (M_PI / 180.0f)
 #define RAD_TO_DEG (180.0f / M_PI)
 #define RPM_TO_RAD_S (2.0f * M_PI / 60.0f)
 
-// Tarea de lectura de sensores
+// Parámetros del filtro complementario
+#define COMPLEMENTARY_ALPHA 0.98f  // Peso del giroscopio (0.96-0.98 típico)
+static float prev_angle_complementary = 0.0f;
+static float angle_offset = 0.0f;
+
+// Constante de corrección para ángulos negativos (ajustar según hardware)
+#define NEG_CORRECT 1.07f
+
+// Límites de control
+#define ANGLE_DEADBAND 0.5f       // ±0.5° zona muerta
+#define ANGLE_SAFETY_LIMIT 45.0f  // ±45° límite de seguridad
+#define MAX_PWM_OUTPUT 200        // Límite máximo de PWM
+
+/**
+ * Filtro complementario para fusionar acelerómetro y giroscopio
+ */
+float complementary_filter(float accel_angle, float gyro_rate, float prev_angle, float dt) {
+    // Integrar giroscopio
+    float gyro_angle = prev_angle + gyro_rate * dt;
+
+    // Fusionar con acelerómetro usando filtro complementario
+    float filtered_angle =
+        COMPLEMENTARY_ALPHA * gyro_angle + (1.0f - COMPLEMENTARY_ALPHA) * accel_angle;
+
+    return filtered_angle;
+}
+
+/**
+ * Tarea para leer sensores (MPU6050 + Encoders)
+ */
 static void sensor_task(void* pvParameters) {
     ESP_LOGI(TAG, "Sensor task started");
 
     TickType_t last_wake_time = xTaskGetTickCount();
-    sensor_data_t sensor_data;
+    uint32_t last_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     while (system_running) {
+        uint32_t current_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        float dt = (current_time_ms - last_time_ms) / 1000.0f;  // En segundos
+        last_time_ms = current_time_ms;
+
         // Leer MPU6050
         mpu6050_data_t mpu_data;
-        float pitch, roll;
+        float pitch_accel, roll;
 
-        if (mpu6050_read_data(&mpu_data) == ESP_OK && mpu6050_get_angles(&pitch, &roll) == ESP_OK) {
-            sensor_data.pitch = pitch * DEG_TO_RAD;  // Convertir a radianes
-            sensor_data.gyro_y = mpu_data.gyro_y * DEG_TO_RAD;
+        if (mpu6050_read_data(&mpu_data) == ESP_OK &&
+            mpu6050_get_angles(&pitch_accel, &roll) == ESP_OK) {
+            // Aplicar offset de calibración
+            float accel_angle = pitch_accel - angle_offset;
+
+            // Corregir ángulos negativos (por imperfecciones del montaje)
+            if (accel_angle < 0) {
+                accel_angle *= NEG_CORRECT;
+            }
+
+            // Aplicar filtro complementario
+            float angle_filt = complementary_filter(accel_angle,
+                                                    mpu_data.gyro_y,  // Velocidad angular en °/s
+                                                    prev_angle_complementary, dt);
+
+            prev_angle_complementary = angle_filt;
+
+            // Actualizar variable compartida
+            if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+                angle_current = angle_filt;
+                xSemaphoreGive(xMutex);
+            }
         }
 
-        // Leer encoders
+        // Leer encoders para control de posición
         encoder_update_all_velocities();
 
         encoder_data_t enc_a, enc_b;
         encoder_get_data(ENCODER_MOTOR_A, &enc_a);
         encoder_get_data(ENCODER_MOTOR_B, &enc_b);
 
-        sensor_data.position_a = enc_a.position_revs;
-        sensor_data.velocity_a = enc_a.velocity_rpm * RPM_TO_RAD_S;
-        sensor_data.position_b = enc_b.position_revs;
-        sensor_data.velocity_b = enc_b.velocity_rpm * RPM_TO_RAD_S;
+        float pos_avg = (enc_a.position_revs + enc_b.position_revs) / 2.0f;
+        float vel_avg = (enc_a.velocity_rpm + enc_b.velocity_rpm) / 2.0f;
 
-        sensor_data.timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        // Actualizar variables compartidas
+        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            position_avg = pos_avg;
+            velocity_avg = vel_avg * RPM_TO_RAD_S;  // Convertir a rad/s
+            xSemaphoreGive(xMutex);
+        }
 
-        // Enviar datos a la tarea de control
-        xQueueSend(sensor_queue, &sensor_data, 0);
-
-        // Esperar hasta el próximo ciclo
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
 
     vTaskDelete(NULL);
 }
 
-// Tarea de control (Kalman + PID)
+/**
+ * Tarea de control PID
+ */
 static void control_task(void* pvParameters) {
     ESP_LOGI(TAG, "Control task started");
 
-    sensor_data_t sensor_data;
-    control_output_t control_output;
+    TickType_t last_wake_time = xTaskGetTickCount();
 
     while (system_running) {
-        // Esperar datos de sensores
-        if (xQueueReceive(sensor_queue, &sensor_data, pdMS_TO_TICKS(20)) == pdTRUE) {
-            // Promediar posición y velocidad de ambos encoders
-            float avg_position = (sensor_data.position_a + sensor_data.position_b) / 2.0f;
-            float avg_velocity = (sensor_data.velocity_a + sensor_data.velocity_b) / 2.0f;
+        // Leer variables compartidas
+        float angle, position, velocity;
 
-            // Actualizar filtro de Kalman
-            kalman_update(&kalman, sensor_data.pitch, sensor_data.gyro_y, avg_position,
-                          avg_velocity);
+        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            angle = angle_current;
+            position = position_avg;
+            velocity = velocity_avg;
+            xSemaphoreGive(xMutex);
+        } else {
+            vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
+            continue;
+        }
 
-            // Obtener estado estimado
-            kalman_state_t state = kalman_get_state(&kalman);
+        int16_t motor_a_pwm = 0;
+        int16_t motor_b_pwm = 0;
 
-            // Control en cascada: primero controlar ángulo, luego posición
+        // ==========================================
+        // LÓGICA DE CONTROL
+        // ==========================================
 
-            // PID de ángulo (control primario)
-            float angle_control = pid_compute(&pid_angle, state.angle);
+        float angle_abs = fabsf(angle);
 
-            // PID de posición (control secundario)
-            float position_control = pid_compute(&pid_position, state.position);
+        // CASO 1: Zona muerta - robot casi vertical
+        if (angle_abs < ANGLE_DEADBAND) {
+            motor_stop_all();
+            pid_reset(&pid_angle);
+            pid_reset(&pid_position);
+        }
+        // CASO 2: Ángulo excede límite de seguridad - robot caído
+        else if (angle_abs > ANGLE_SAFETY_LIMIT) {
+            motor_stop_all();
+            pid_reset(&pid_angle);
+            pid_reset(&pid_position);
+            ESP_LOGW(TAG, "Safety stop: angle %.1f° exceeds limit", angle);
+        }
+        // CASO 3: Control activo
+        else {
+            // PID de ángulo (control principal)
+            float angle_output = pid_compute(&pid_angle, angle);
 
-            // Combinar salidas (el ángulo es prioritario)
-            float total_control = angle_control + position_control * 0.3f;
+            // PID de posición (control secundario para evitar deriva)
+            float position_output = pid_compute(&pid_position, position);
 
-            // Convertir a PWM para motores
-            control_output.motor_a_pwm = (int16_t)total_control;
-            control_output.motor_b_pwm = (int16_t)total_control;
+            // Combinar salidas (ángulo es prioritario)
+            float total_output = angle_output + position_output * 0.1f;
 
-            // Limitar a rango válido
-            if (control_output.motor_a_pwm > 255) control_output.motor_a_pwm = 255;
-            if (control_output.motor_a_pwm < -255) control_output.motor_a_pwm = -255;
-            if (control_output.motor_b_pwm > 255) control_output.motor_b_pwm = 255;
-            if (control_output.motor_b_pwm < -255) control_output.motor_b_pwm = -255;
+            // Limitar salida
+            if (total_output > MAX_PWM_OUTPUT) total_output = MAX_PWM_OUTPUT;
+            if (total_output < -MAX_PWM_OUTPUT) total_output = -MAX_PWM_OUTPUT;
 
-            // Enviar a tarea de motores
-            xQueueSend(control_queue, &control_output, 0);
+            // Normalizar a rango 0-1 para la función drive
+            float normalized_output = total_output / (float)MAX_PWM_OUTPUT;
 
-            // Log cada segundo
-            static uint32_t log_counter = 0;
-            if (++log_counter >= CONTROL_FREQ_HZ) {
-                log_counter = 0;
-                ESP_LOGI(TAG, "Angle=%.2f° Pos=%.2f PWM=%d", state.angle * RAD_TO_DEG,
-                         state.position, control_output.motor_a_pwm);
+            // Convertir a PWM de motores (0-255)
+            motor_a_pwm = (int16_t)(normalized_output * 255.0f);
+            motor_b_pwm = motor_a_pwm;  // Ambos motores igual velocidad
+
+            // Aplicar a motores
+            if (motor_a_pwm > 0) {
+                motor_set_speed(MOTOR_A, MOTOR_FORWARD, (uint8_t)motor_a_pwm);
+                motor_set_speed(MOTOR_B, MOTOR_FORWARD, (uint8_t)motor_b_pwm);
+            } else if (motor_a_pwm < 0) {
+                motor_set_speed(MOTOR_A, MOTOR_BACKWARD, (uint8_t)(-motor_a_pwm));
+                motor_set_speed(MOTOR_B, MOTOR_BACKWARD, (uint8_t)(-motor_b_pwm));
+            } else {
+                motor_stop_all();
             }
         }
+
+        // Log cada segundo
+        static uint32_t log_counter = 0;
+        if (++log_counter >= (CONTROL_FREQ_HZ / 10)) {
+            log_counter = 0;
+
+            // Mostrar componentes del PID por separado
+            float p_term = pid_angle.kp * angle;
+            float i_term = pid_angle.ki * pid_angle.integral;
+            float d_term = pid_angle.kd * (angle - pid_angle.prev_error) / pid_angle.dt;
+
+            ESP_LOGI(TAG, "Ang=%.2f° P=%.1f I=%.1f D=%.1f Total=%.1f PWM=%d", angle, p_term, i_term,
+                     d_term, (p_term + i_term + d_term), motor_a_pwm);
+        }
+
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
 
     vTaskDelete(NULL);
 }
 
-// Tarea de actuación de motores
-static void motor_task(void* pvParameters) {
-    ESP_LOGI(TAG, "Motor task started");
+/**
+ * Calibrar offset del MPU6050 en posición vertical
+ */
+esp_err_t balance_control_calibrate_offset(void) {
+    ESP_LOGI(TAG, "Calibrating angle offset...");
+    ESP_LOGI(TAG, "Keep robot in UPRIGHT position!");
 
-    control_output_t control_output;
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
-    while (system_running) {
-        // Esperar comandos de control
-        if (xQueueReceive(control_queue, &control_output, pdMS_TO_TICKS(50)) == pdTRUE) {
-            // Aplicar a motor A
-            if (control_output.motor_a_pwm > 0) {
-                motor_set_speed(MOTOR_A, MOTOR_FORWARD, (uint8_t)control_output.motor_a_pwm);
-            } else if (control_output.motor_a_pwm < 0) {
-                motor_set_speed(MOTOR_A, MOTOR_BACKWARD, (uint8_t)(-control_output.motor_a_pwm));
-            } else {
-                motor_stop(MOTOR_A);
-            }
-
-            // Aplicar a motor B
-            if (control_output.motor_b_pwm > 0) {
-                motor_set_speed(MOTOR_B, MOTOR_FORWARD, (uint8_t)control_output.motor_b_pwm);
-            } else if (control_output.motor_b_pwm < 0) {
-                motor_set_speed(MOTOR_B, MOTOR_BACKWARD, (uint8_t)(-control_output.motor_b_pwm));
-            } else {
-                motor_stop(MOTOR_B);
-            }
-        } else {
-            // Timeout - detener motores por seguridad
-            motor_stop_all();
-        }
+    float pitch, roll;
+    if (mpu6050_get_angles(&pitch, &roll) == ESP_OK) {
+        angle_offset = pitch;
+        ESP_LOGI(TAG, "Angle offset calibrated: %.2f°", angle_offset);
+        return ESP_OK;
     }
 
-    // Detener motores al finalizar
-    motor_stop_all();
-    vTaskDelete(NULL);
+    ESP_LOGE(TAG, "Failed to calibrate offset");
+    return ESP_FAIL;
 }
 
 esp_err_t balance_control_init(void) {
-    ESP_LOGI(TAG, "Initializing balance control system...");
+    ESP_LOGI(TAG, "Initializing balance control system (v2)...");
 
-    // Inicializar filtro de Kalman
     float dt = CONTROL_PERIOD_MS / 1000.0f;
-    if (kalman_init(&kalman, dt) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize Kalman filter");
-        return ESP_FAIL;
-    }
 
-    // Inicializar PIDs (valores iniciales, ajustar experimentalmente)
-    if (pid_init(&pid_angle, 40.0f, 0.5f, 2.0f, dt) != ESP_OK) {
+    // Inicializar PID de ángulo (valores del código que funcionaba)
+    if (pid_init(&pid_angle, 20.0f, 0.0f, 0.0f, dt) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize angle PID");
         return ESP_FAIL;
     }
+    pid_set_limits(&pid_angle, -MAX_PWM_OUTPUT, MAX_PWM_OUTPUT);
+    pid_set_setpoint(&pid_angle, 0.0f);
 
-    if (pid_init(&pid_position, 5.0f, 0.1f, 0.5f, dt) != ESP_OK) {
+    // Inicializar PID de posición (más suave)
+    if (pid_init(&pid_position, 0.0f, 0.0f, 0.0f, dt) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize position PID");
         return ESP_FAIL;
     }
-
-    // Configurar límites de PID
-    pid_set_limits(&pid_angle, -255.0f, 255.0f);
     pid_set_limits(&pid_position, -50.0f, 50.0f);
+    pid_set_setpoint(&pid_position, 0.0f);
 
-    // Crear colas
-    sensor_queue = xQueueCreate(5, sizeof(sensor_data_t));
-    control_queue = xQueueCreate(5, sizeof(control_output_t));
-
-    if (sensor_queue == NULL || control_queue == NULL) {
-        ESP_LOGE(TAG, "Failed to create queues");
+    // Crear mutex
+    xMutex = xSemaphoreCreateMutex();
+    if (xMutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create mutex");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Balance control system initialized");
+    ESP_LOGI(TAG, "Balance control initialized");
+    ESP_LOGI(TAG, "=== TUNING MODE: P-Only ===");
+    ESP_LOGI(TAG, "PID Angle: Kp=5.0 Ki=0.0 Kd=0.0");
+
     return ESP_OK;
 }
 
@@ -204,7 +277,7 @@ esp_err_t balance_control_start(void) {
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Starting balance control system...");
+    ESP_LOGI(TAG, "Starting balance control...");
 
     // Inicializar hardware
     if (motor_driver_init() != ESP_OK) {
@@ -219,12 +292,20 @@ esp_err_t balance_control_start(void) {
 
     system_running = true;
 
-    // Crear tareas (prioridades: Sensores=5, Control=6, Motores=4)
-    xTaskCreatePinnedToCore(sensor_task, "sensor_task", 4096, NULL, 5, &sensor_task_handle, 0);
-    xTaskCreatePinnedToCore(control_task, "control_task", 4096, NULL, 6, &control_task_handle, 1);
-    xTaskCreatePinnedToCore(motor_task, "motor_task", 2048, NULL, 4, &motor_task_handle, 1);
+    // Crear tareas
+    xTaskCreatePinnedToCore(sensor_task, "SensorTask", 4096, NULL,
+                            2,  // Prioridad alta
+                            &sensor_task_handle,
+                            0  // Core 0
+    );
 
-    ESP_LOGI(TAG, "Balance control system started");
+    xTaskCreatePinnedToCore(control_task, "ControlTask", 4096, NULL,
+                            1,  // Prioridad media
+                            &control_task_handle,
+                            1  // Core 1
+    );
+
+    ESP_LOGI(TAG, "Balance control started at %d Hz", CONTROL_FREQ_HZ);
     return ESP_OK;
 }
 
@@ -233,31 +314,32 @@ esp_err_t balance_control_stop(void) {
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Stopping balance control system...");
+    ESP_LOGI(TAG, "Stopping balance control...");
 
     system_running = false;
-
-    // Esperar a que las tareas terminen
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    // Detener motores
     motor_stop_all();
     motor_driver_disable();
 
-    ESP_LOGI(TAG, "Balance control system stopped");
+    ESP_LOGI(TAG, "Balance control stopped");
     return ESP_OK;
 }
 
-esp_err_t balance_control_set_pid_gains(float kp_angle, float ki_angle, float kd_angle,
-                                        float kp_position, float ki_position, float kd_position) {
-    pid_angle.kp = kp_angle;
-    pid_angle.ki = ki_angle;
-    pid_angle.kd = kd_angle;
+esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd) {
+    pid_angle.kp = kp;
+    pid_angle.ki = ki;
+    pid_angle.kd = kd;
 
-    pid_position.kp = kp_position;
-    pid_position.ki = ki_position;
-    pid_position.kd = kd_position;
+    ESP_LOGI(TAG, "Angle PID updated: Kp=%.1f Ki=%.1f Kd=%.1f", kp, ki, kd);
+    return ESP_OK;
+}
 
-    ESP_LOGI(TAG, "PID gains updated");
+esp_err_t balance_control_set_position_pid(float kp, float ki, float kd) {
+    pid_position.kp = kp;
+    pid_position.ki = ki;
+    pid_position.kd = kd;
+
+    ESP_LOGI(TAG, "Position PID updated: Kp=%.1f Ki=%.1f Kd=%.1f", kp, ki, kd);
     return ESP_OK;
 }

@@ -7,9 +7,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "kalman_filter.h"
 #include "motor_driver.h"
 #include "mpu6050.h"
 #include "pid_controller.h"
@@ -20,6 +19,7 @@ extern "C" {
 
 #define CONTROL_FREQ_HZ 100
 #define CONTROL_PERIOD_MS (1000 / CONTROL_FREQ_HZ)
+#define MOTOR_B_CORRECTION 0.82f  // Factor de correccion para el motor b
 
 // Datos de sensores
 typedef struct {
@@ -47,9 +47,14 @@ esp_err_t balance_control_start(void);
 // Detiene el sistema de control
 esp_err_t balance_control_stop(void);
 
-// Configura las ganancias PID
-esp_err_t balance_control_set_pid_gains(float kp_angle, float ki_angle, float kd_angle,
-                                        float kp_position, float ki_position, float kd_position);
+// Calibra el offset del ángulo (llamar con robot vertical)
+esp_err_t balance_control_calibrate_offset(void);
+
+// Configura las ganancias PID del ángulo
+esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd);
+
+// Configura las ganancias PID de la posición
+esp_err_t balance_control_set_position_pid(float kp, float ki, float kd);
 
 #ifdef __cplusplus
 }

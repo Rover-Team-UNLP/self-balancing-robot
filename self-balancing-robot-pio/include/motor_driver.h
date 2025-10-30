@@ -23,6 +23,7 @@ extern "C" {
 #define MOTOR_PWM_FREQUENCY 1000
 #define MOTOR_PWM_RESOLUTION LEDC_TIMER_8_BIT
 #define MOTOR_PWM_MAX_DUTY 255
+#define MIN_PWM 40
 
 typedef enum { MOTOR_A = 0, MOTOR_B = 1 } motor_id_t;
 

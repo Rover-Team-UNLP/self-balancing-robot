@@ -8,9 +8,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define ENCODER_A_PIN_A GPIO_NUM_32
 #define ENCODER_A_PIN_B GPIO_NUM_33
@@ -69,8 +66,6 @@ esp_err_t encoder_update_all_velocities(void);
 // Obtiene toda la información del encoder en una estructura
 void encoder_get_data(encoder_id_t encoder, encoder_data_t* data);
 
-#ifdef __cplusplus
-}
-#endif
+
 
 #endif  // ENCODER_H

@@ -13,18 +13,23 @@
 #include "mpu6050.h"
 #include "pid_controller.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 #define CONTROL_FREQ_HZ 100
 #define CONTROL_PERIOD_MS (1000 / CONTROL_FREQ_HZ)
 #define MOTOR_B_CORRECTION 0.82f  // Factor de correccion para el motor b
+#define KP 18.0f
+#define KI 100.0f
+#define KD 0.5f
+
+#define ALPHA (0.98f) // Le creemos un 98% al giroscopio y un 2% al acelerometro
+
+
 
 // Datos de sensores
 typedef struct {
     float pitch;         // Ángulo de pitch del MPU (rad)
-    float gyro_y;        // Velocidad angular Y (rad/s)
+    float gyro_x;        // Velocidad angular Y (rad/s)
     float position_a;    // Posición encoder A (rev)
     float velocity_a;    // Velocidad encoder A (rad/s)
     float position_b;    // Posición encoder B (rev)
@@ -56,8 +61,6 @@ esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd);
 // Configura las ganancias PID de la posición
 esp_err_t balance_control_set_position_pid(float kp, float ki, float kd);
 
-#ifdef __cplusplus
-}
-#endif
+
 
 #endif  // BALANCE_CONTROL_H

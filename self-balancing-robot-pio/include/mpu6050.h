@@ -7,9 +7,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // I2C Configuration
 #define MPU6050_I2C_PORT I2C_NUM_0
@@ -131,8 +128,6 @@ esp_err_t mpu6050_calibrate(uint16_t samples);
 // Calcula los ángulos de inclinación pitch (cabeceo) y roll (balanceo)
 esp_err_t mpu6050_get_angles(float* pitch, float* roll);
 
-#ifdef __cplusplus
-}
-#endif
+
 
 #endif  // MPU6050_H

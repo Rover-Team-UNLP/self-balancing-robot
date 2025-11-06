@@ -73,7 +73,6 @@ static const char* html_page =
 
     "<div class='section'>"
     "<h3 style='margin-top:0;color:#FF9800'>Control</h3>"
-    "<button class='cal-btn' onclick='calibrate()'>🎯 Calibrate Offset</button>"
     "<button class='stop-btn' onclick='stop()'>⛔ Emergency Stop</button>"
     "<button onclick='getStatus()'>🔄 Get Status</button>"
     "</div>"
@@ -97,13 +96,6 @@ static const char* html_page =
     "let kd=document.getElementById('kd_p').value;"
     "document.getElementById('status').innerHTML='⏳ Updating Position PID...';"
     "fetch('/api/position?kp='+kp+'&ki='+ki+'&kd='+kd)"
-    ".then(r=>{if(!r.ok)throw new Error('Failed');return r.text();})"
-    ".then(t=>{document.getElementById('status').innerHTML='✅ '+t;})"
-    ".catch(e=>{document.getElementById('status').innerHTML='❌ Error: '+e.message;});"
-    "}"
-    "function calibrate(){"
-    "document.getElementById('status').innerHTML='⏳ Calibrating...';"
-    "fetch('/api/calibrate')"
     ".then(r=>{if(!r.ok)throw new Error('Failed');return r.text();})"
     ".then(t=>{document.getElementById('status').innerHTML='✅ '+t;})"
     ".catch(e=>{document.getElementById('status').innerHTML='❌ Error: '+e.message;});"
@@ -271,10 +263,6 @@ static void configure_routes(httpd_handle_t server) {
     httpd_uri_t position_pid = {
         .uri = "/api/position", .method = HTTP_GET, .handler = position_pid_handler};
     httpd_register_uri_handler(server, &position_pid);
-
-    httpd_uri_t calibrate = {
-        .uri = "/api/calibrate", .method = HTTP_GET, .handler = calibrate_handler};
-    httpd_register_uri_handler(server, &calibrate);
 
     httpd_uri_t stop = {.uri = "/api/stop", .method = HTTP_GET, .handler = stop_handler};
     httpd_register_uri_handler(server, &stop);

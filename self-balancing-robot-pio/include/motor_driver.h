@@ -6,9 +6,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // Pin definitions based on your wiring
 #define MOTOR_STANDBY_PIN GPIO_NUM_27
@@ -23,6 +20,8 @@ extern "C" {
 #define MOTOR_PWM_FREQUENCY 1000
 #define MOTOR_PWM_RESOLUTION LEDC_TIMER_8_BIT
 #define MOTOR_PWM_MAX_DUTY 255
+
+// Umbral minimo de PWM
 #define MIN_PWM 40
 
 typedef enum { MOTOR_A = 0, MOTOR_B = 1 } motor_id_t;
@@ -49,9 +48,5 @@ esp_err_t motor_stop_all(void);
 
 // Parada de emergencia: detiene y deshabilita ambos motores
 esp_err_t motor_emergency_stop(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  // MOTOR_DRIVER_H

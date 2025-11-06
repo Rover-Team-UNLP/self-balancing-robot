@@ -5,9 +5,7 @@
 
 #include "esp_err.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 typedef struct {
     float kp;  // Ganancia proporcional
@@ -39,8 +37,6 @@ float pid_compute(pid_controller_t* pid, float measured_value);
 // Reinicia el controlador PID (limpia integral y error previo)
 esp_err_t pid_reset(pid_controller_t* pid);
 
-#ifdef __cplusplus
-}
-#endif
+
 
 #endif  // PID_CONTROLLER_H

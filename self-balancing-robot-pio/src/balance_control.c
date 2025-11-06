@@ -4,26 +4,26 @@
  * de los motores usando control PID para mantener el equilibrio.
  */
 
-#include "balance_control.h" // El .h con las funciones públicas
+#include "balance_control.h"  // El .h con las funciones públicas
 
 // --- Librerías de los módulos "rescatados" ---
-#include "mpu6050.h"
 #include "encoder.h"
 #include "motor_driver.h"
+#include "mpu6050.h"
 #include "pid_controller.h"
 
 // --- Constantes del Módulo ---
-static const char *TAG = "BALANCE_CONTROL";
+static const char* TAG = "BALANCE_CONTROL";
 
 // Frecuencia del bucle de control (100Hz)
 #define CONTROL_FREQ_HZ 100
 #define CONTROL_PERIOD_MS (1000 / CONTROL_FREQ_HZ)
 
 // Parámetros Físicos y de Seguridad
-#define COMPLEMENTARY_ALPHA 0.98f // 98% giroscopio, 2% acelerómetro
-#define ANGLE_DEADBAND 0.5f       // ±0.5° zona muerta para no vibrar
-#define ANGLE_SAFETY_LIMIT 45.0f  // ±45° límite para apagar motores
-#define MAX_PWM_OUTPUT 200        // Límite de PWM (de 255) para no ir tan rápido
+#define COMPLEMENTARY_ALPHA 0.98f  // 98% giroscopio, 2% acelerómetro
+#define ANGLE_DEADBAND 0.5f        // ±0.5° zona muerta para no vibrar
+#define ANGLE_SAFETY_LIMIT 45.0f   // ±45° límite para apagar motores
+#define MAX_PWM_OUTPUT 200         // Límite de PWM (de 255) para no ir tan rápido
 
 // --- Variables Estáticas del Módulo ---
 
@@ -38,24 +38,24 @@ static TaskHandle_t control_task_handle = NULL;
 // Mutex para comunicación entre tareas
 static SemaphoreHandle_t xMutex = NULL;
 
-static volatile float angle_current = 0.0f; // El ángulo filtrado actual
-static volatile float position_avg = 0.0f;  // La posición promedio de las ruedas
-static volatile float velocity_avg = 0.0f;  // La velocidad promedio de las ruedas
+static volatile float angle_current = 0.0f;  // El ángulo filtrado actual
+static volatile float position_avg = 0.0f;   // La posición promedio de las ruedas
+static volatile float velocity_avg = 0.0f;   // La velocidad promedio de las ruedas
 
 // Variables de estado (internas)
-static float angle_offset = 0.0f;             // Offset de calibración
-static float prev_angle_complementary = 0.0f; // Memoria del filtro
-static bool system_running = false;           // Flag de esta
+static float angle_offset = 0.0f;              // Offset de calibración
+static float prev_angle_complementary = 0.0f;  // Memoria del filtro
+static bool system_running = false;            // Flag de esta
+static bool in_deadband = false;
 
-static void sensor_task(void *pvParameters);
+static void sensor_task(void* pvParameters);
 
-static void control_task(void *pvParameters);
+static void control_task(void* pvParameters);
 
-
-esp_err_t balance_control_init(void)
-{
+esp_err_t balance_control_init(void) {
     xMutex = xSemaphoreCreateMutex();
     float dt = (float)CONTROL_PERIOD_MS / 1000.0f;
+    in_deadband = false;
 
     pid_init(&pid_angle, KP, KI, KD, dt);
     pid_init(&pid_position, 0, 0, 0, dt);
@@ -66,8 +66,7 @@ esp_err_t balance_control_init(void)
     return ESP_OK;
 }
 
-esp_err_t balance_control_start(void)
-{
+esp_err_t balance_control_start(void) {
     if (motor_driver_init() != ESP_OK) {
         return ESP_FAIL;
     }
@@ -83,10 +82,8 @@ esp_err_t balance_control_start(void)
     return ESP_OK;
 }
 
-esp_err_t balance_control_stop(void)
-{
-    if (!system_running)
-    {
+esp_err_t balance_control_stop(void) {
+    if (!system_running) {
         return ESP_OK;
     }
 
@@ -102,21 +99,18 @@ esp_err_t balance_control_stop(void)
     return ESP_OK;
 }
 
-esp_err_t balance_control_calibrate_offset(void)
-{
+esp_err_t balance_control_calibrate_offset(void) {
     float pitch;
     float roll;
     esp_err_t return_value = mpu6050_get_angles(&pitch, &roll);
-    if (return_value != ESP_OK)
-    {
+    if (return_value != ESP_OK) {
         return return_value;
     }
     angle_offset = pitch;
     return return_value;
 }
 
-esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd)
-{
+esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd) {
     pid_angle.kp = kp;
     pid_angle.ki = ki;
     pid_angle.kd = kd;
@@ -125,8 +119,7 @@ esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd)
     return ESP_OK;
 }
 
-esp_err_t balance_control_set_position_pid(float kp, float ki, float kd)
-{
+esp_err_t balance_control_set_position_pid(float kp, float ki, float kd) {
     pid_position.kp = kp;
     pid_position.ki = ki;
     pid_position.kd = kd;
@@ -137,9 +130,7 @@ esp_err_t balance_control_set_position_pid(float kp, float ki, float kd)
 
 // --- Implementación de Funciones Internas (Privadas) ---
 
-
-static void sensor_task(void *pvParameters)
-{
+static void sensor_task(void* pvParameters) {
     // Variables de temporizacion de la tarea
     TickType_t last_wake_time = xTaskGetTickCount();
     uint32_t last_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -155,21 +146,18 @@ static void sensor_task(void *pvParameters)
     float filtered_angle;
     encoder_data_t encoder_a, encoder_b;
 
-    while (system_running)
-    {
+    while (system_running) {
         // Actualizo el diferencial de tiempo
         current_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
         dt = (current_time_ms - last_time_ms) / 1000.0f;
         last_time_ms = current_time_ms;
 
         // Lectura desde el IMU con chequeo de error
-        if (mpu6050_read_data(&new_mpu_data) == ESP_OK && mpu6050_get_angles(&pitch, &roll) == ESP_OK)
-        {
+        if (mpu6050_read_data(&new_mpu_data) == ESP_OK &&
+            mpu6050_get_angles(&pitch, &roll) == ESP_OK) {
             accel_angle = pitch - angle_offset;
             gyro = new_mpu_data.gyro_x;
-        }
-        else
-        {
+        } else {
             ESP_LOGE("SENSOR_TASK", "Error al leer IMU");
             vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
             continue;
@@ -188,8 +176,7 @@ static void sensor_task(void *pvParameters)
         encoder_pos_avg = (encoder_a.position_revs + encoder_b.position_revs) / 2.0f;
 
         // Actualizo las variables compartidas cuando me cedan el mute
-        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == pdTRUE)
-        {
+        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
             angle_current = filtered_angle;
             position_avg = encoder_pos_avg;
             velocity_avg = encoder_vel_avg;
@@ -203,63 +190,55 @@ static void sensor_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-static void control_task(void *pvParameters)
-{
+static void control_task(void* pvParameters) {
     TickType_t last_wake_time = xTaskGetTickCount();
     TickType_t xFrequency = pdMS_TO_TICKS(CONTROL_PERIOD_MS);
 
     float angle = 0;
     float position = 0;
-    while (system_running)
-    {
-        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == true)
-        {
+    while (system_running) {
+        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == true) {
             angle = angle_current;
             position = position_avg;
             xSemaphoreGive(xMutex);
-        }
-        else
-        {
+        } else {
             vTaskDelayUntil(&last_wake_time, xFrequency);
             continue;
+        }
+
+        float angle_abs = fabs(angle);
+        if (in_deadband) {
+            if (angle_abs > ANGLE_DEADBAND_EXIT) in_deadband = false;
+        } else {
+            if (angle_abs < ANGLE_DEADBAND_ENTER) in_deadband = true;
         }
 
         float angle_output = pid_compute(&pid_angle, angle);
         float position_output = pid_compute(&pid_position, position);
 
         float total_output = -(angle_output + position_output * 0.1f);
-        if (total_output > MAX_PWM_OUTPUT)
-        {
+        if (total_output > MAX_PWM_OUTPUT) {
             total_output = MAX_PWM_OUTPUT;
-        }
-        else if (total_output < -MAX_PWM_OUTPUT)
-        {
+        } else if (total_output < -MAX_PWM_OUTPUT) {
             total_output = -MAX_PWM_OUTPUT;
         }
 
         int16_t pwm_signal = (int16_t)total_output;
         uint8_t pwm_magnitud = (uint8_t)abs(total_output);
 
-        if (pwm_magnitud > 0 && pwm_magnitud < MIN_PWM)
-        {
+        if (pwm_magnitud > 0 && pwm_magnitud < MIN_PWM) {
             pwm_magnitud = MIN_PWM;
         }
 
-        if (pwm_signal > 0)
-        {
+        if (pwm_signal > 0) {
             motor_set_speed(MOTOR_A, MOTOR_FORWARD, pwm_magnitud);
             motor_set_speed(MOTOR_B, MOTOR_FORWARD, pwm_magnitud * MOTOR_B_CORRECTION);
-        }
-        else if (pwm_signal < 0)
-        {
+        } else if (pwm_signal < 0) {
             motor_set_speed(MOTOR_A, MOTOR_BACKWARD, pwm_magnitud);
             motor_set_speed(MOTOR_B, MOTOR_BACKWARD, pwm_magnitud * MOTOR_B_CORRECTION);
-        }
-        else
-        {
+        } else {
             motor_stop_all();
         }
         vTaskDelayUntil(&last_wake_time, xFrequency);
     }
 }
-

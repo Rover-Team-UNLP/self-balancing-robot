@@ -13,8 +13,6 @@
 #include "mpu6050.h"
 #include "pid_controller.h"
 
-
-
 #define CONTROL_FREQ_HZ 100
 #define CONTROL_PERIOD_MS (1000 / CONTROL_FREQ_HZ)
 #define MOTOR_B_CORRECTION 0.82f  // Factor de correccion para el motor b
@@ -22,9 +20,10 @@
 #define KI 100.0f
 #define KD 0.5f
 
-#define ALPHA (0.98f) // Le creemos un 98% al giroscopio y un 2% al acelerometro
+#define ALPHA (0.98f)  // Le creemos un 98% al giroscopio y un 2% al acelerometro
 
-
+#define ANGLE_DEADBAND_ENTER 0.5f
+#define ANGLE_DEADBAND_EXIT 0.7f
 
 // Datos de sensores
 typedef struct {
@@ -60,7 +59,5 @@ esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd);
 
 // Configura las ganancias PID de la posición
 esp_err_t balance_control_set_position_pid(float kp, float ki, float kd);
-
-
 
 #endif  // BALANCE_CONTROL_H

@@ -244,6 +244,5 @@ static void control_task(void* pvParameters) {
         } else {
             motor_stop_all();
         }
-        vTaskDelayUntil(&last_wake_time, xFrequency);
     }
 }

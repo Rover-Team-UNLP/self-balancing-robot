@@ -17,8 +17,8 @@
 #define CONTROL_PERIOD_MS (1000 / CONTROL_FREQ_HZ)
 #define MOTOR_B_CORRECTION 0.82f  // Factor de correccion para el motor b
 #define KP 18.0f
-#define KI 100.0f
-#define KD 0.5f
+#define KI 0.0f
+#define KD 0.0f
 
 #define ALPHA (0.98f)  // Le creemos un 98% al giroscopio y un 2% al acelerometro
 
@@ -42,6 +42,9 @@ typedef struct {
     int16_t motor_b_pwm;  // PWM para motor B (-255 a 255)
 } control_output_t;
 
+static pid_controller_t pid_angle;
+static pid_controller_t pid_position;
+
 // Inicializa el sistema de control (crea tareas FreeRTOS)
 esp_err_t balance_control_init(void);
 
@@ -52,7 +55,7 @@ esp_err_t balance_control_start(void);
 esp_err_t balance_control_stop(void);
 
 // Calibra el offset del ángulo (llamar con robot vertical)
-esp_err_t balance_control_calibrate_offset(void);
+float balance_control_calibrate_offset(void);
 
 // Configura las ganancias PID del ángulo
 esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd);

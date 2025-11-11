@@ -1,9 +1,3 @@
-/**
- * balance_control.c - El "Cerebro" del Robot
- * * Lee los sensores filtrados y calcula la salida
- * de los motores usando control PID para mantener el equilibrio.
- */
-
 #include "balance_control.h"  // El .h con las funciones públicas
 
 // --- Librerías de los módulos "rescatados" ---
@@ -28,8 +22,6 @@ static const char* TAG = "BALANCE_CONTROL";
 // --- Variables Estáticas del Módulo ---
 
 // Controladores PID (usando tu módulo pid_controller.c)
-static pid_controller_t pid_angle;
-static pid_controller_t pid_position;
 
 // Handles de las Tareas RTOS
 static TaskHandle_t sensor_task_handle = NULL;
@@ -74,10 +66,10 @@ esp_err_t balance_control_start(void) {
         return ESP_FAIL;
     }
 
-    system_running = true;
+    // system_running = true;
 
-    xTaskCreatePinnedToCore(sensor_task, "SensorTask", 4096, NULL, 2, &sensor_task_handle, 0);
-    xTaskCreatePinnedToCore(control_task, "ControlTask", 4096, NULL, 1, &control_task_handle, 1);
+    // xTaskCreatePinnedToCore(sensor_task, "SensorTask", 4096, NULL, 2, &sensor_task_handle, 0);
+    //xTaskCreatePinnedToCore(control_task, "ControlTask", 4096, NULL, 1, &control_task_handle, 1);
 
     return ESP_OK;
 }
@@ -99,15 +91,15 @@ esp_err_t balance_control_stop(void) {
     return ESP_OK;
 }
 
-esp_err_t balance_control_calibrate_offset(void) {
+float balance_control_calibrate_offset(void) {
     float pitch;
     float roll;
     esp_err_t return_value = mpu6050_get_angles(&pitch, &roll);
     if (return_value != ESP_OK) {
-        return return_value;
+        return -1;
     }
     angle_offset = pitch;
-    return return_value;
+    return angle_offset;
 }
 
 esp_err_t balance_control_set_angle_pid(float kp, float ki, float kd) {
@@ -133,8 +125,6 @@ esp_err_t balance_control_set_position_pid(float kp, float ki, float kd) {
 static void sensor_task(void* pvParameters) {
     // Variables de temporizacion de la tarea
     TickType_t last_wake_time = xTaskGetTickCount();
-    uint32_t last_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    uint32_t current_time_ms;
     float dt;
 
     // Variables de lectura
@@ -148,9 +138,7 @@ static void sensor_task(void* pvParameters) {
 
     while (system_running) {
         // Actualizo el diferencial de tiempo
-        current_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        dt = (current_time_ms - last_time_ms) / 1000.0f;
-        last_time_ms = current_time_ms;
+        dt =  (float)CONTROL_PERIOD_MS/ 1000.0f;
 
         // Lectura desde el IMU con chequeo de error
         if (mpu6050_read_data(&new_mpu_data) == ESP_OK &&
@@ -197,7 +185,7 @@ static void control_task(void* pvParameters) {
     float angle = 0;
     float position = 0;
     while (system_running) {
-        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == true) {
+        if (xSemaphoreTake(xMutex, 0) == true) {
             angle = angle_current;
             position = position_avg;
             xSemaphoreGive(xMutex);
@@ -216,6 +204,10 @@ static void control_task(void* pvParameters) {
         float angle_output = pid_compute(&pid_angle, angle);
         float position_output = pid_compute(&pid_position, position);
 
+        if (in_deadband) {
+            angle_output = 0;
+        }
+
         float total_output = -(angle_output + position_output * 0.1f);
         if (total_output > MAX_PWM_OUTPUT) {
             total_output = MAX_PWM_OUTPUT;
@@ -224,7 +216,7 @@ static void control_task(void* pvParameters) {
         }
 
         int16_t pwm_signal = (int16_t)total_output;
-        uint8_t pwm_magnitud = (uint8_t)abs(total_output);
+        uint8_t pwm_magnitud = (uint8_t) abs(total_output);
 
         if (pwm_magnitud > 0 && pwm_magnitud < MIN_PWM) {
             pwm_magnitud = MIN_PWM;
@@ -232,10 +224,10 @@ static void control_task(void* pvParameters) {
 
         if (pwm_signal > 0) {
             motor_set_speed(MOTOR_A, MOTOR_FORWARD, pwm_magnitud);
-            motor_set_speed(MOTOR_B, MOTOR_FORWARD, pwm_magnitud * MOTOR_B_CORRECTION);
+            motor_set_speed(MOTOR_B, MOTOR_FORWARD, pwm_magnitud);
         } else if (pwm_signal < 0) {
             motor_set_speed(MOTOR_A, MOTOR_BACKWARD, pwm_magnitud);
-            motor_set_speed(MOTOR_B, MOTOR_BACKWARD, pwm_magnitud * MOTOR_B_CORRECTION);
+            motor_set_speed(MOTOR_B, MOTOR_BACKWARD, pwm_magnitud);
         } else {
             motor_stop_all();
         }

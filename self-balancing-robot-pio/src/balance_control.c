@@ -36,7 +36,8 @@ static TaskHandle_t sensor_task_handle = NULL;
 static TaskHandle_t control_task_handle = NULL;
 
 // Mutex para comunicación entre tareas
-static SemaphoreHandle_t xMutex = NULL;
+// static SemaphoreHandle_t xMutex = NULL;
+static SemaphoreHandle_t sensor_data_ready_sem = NULL;
 
 static volatile float angle_current = 0.0f;  // El ángulo filtrado actual
 static volatile float position_avg = 0.0f;   // La posición promedio de las ruedas
@@ -53,7 +54,13 @@ static void sensor_task(void* pvParameters);
 static void control_task(void* pvParameters);
 
 esp_err_t balance_control_init(void) {
-    xMutex = xSemaphoreCreateMutex();
+    // xMutex = xSemaphoreCreateMutex();
+    sensor_data_ready_sem = xSemaphoreCreateBinary();
+    if (sensor_data_ready_sem == NULL) {
+        ESP_LOGE(TAG, "Fallo en la creacion del semaforo");
+        return ESP_FAIL;
+    }
+
     float dt = (float)CONTROL_PERIOD_MS / 1000.0f;
     in_deadband = false;
 
@@ -176,14 +183,14 @@ static void sensor_task(void* pvParameters) {
         encoder_pos_avg = (encoder_a.position_revs + encoder_b.position_revs) / 2.0f;
 
         // Actualizo las variables compartidas cuando me cedan el mute
-        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            angle_current = filtered_angle;
-            position_avg = encoder_pos_avg;
-            velocity_avg = encoder_vel_avg;
+        // if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        angle_current = filtered_angle;
+        position_avg = encoder_pos_avg;
+        velocity_avg = encoder_vel_avg;
 
-            xSemaphoreGive(xMutex);
-        }
-
+        //     xSemaphoreGive(xMutex);
+        // }
+        xSemaphoreGive(sensor_data_ready_sem);
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
 
@@ -197,12 +204,10 @@ static void control_task(void* pvParameters) {
     float angle = 0;
     float position = 0;
     while (system_running) {
-        if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(5)) == true) {
+        if (xSemaphoreTake(sensor_data_ready_sem, pdMS_TO_TICKS(5)) == true) {
             angle = angle_current;
             position = position_avg;
-            xSemaphoreGive(xMutex);
         } else {
-            vTaskDelayUntil(&last_wake_time, xFrequency);
             continue;
         }
 

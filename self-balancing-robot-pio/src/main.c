@@ -1,35 +1,27 @@
 #include "main.h"
-#include "web_interface.h"
-#include "driver/gpio.h"
 
-static const char *TAG = "MAIN";
+#include "driver/gpio.h"
+#include "web_interface.h"
+
+static const char* TAG = "MAIN";
 
 // LED integrado de la ESP32
 #define LED_PIN GPIO_NUM_2
 
 // Función para controlar el LED
-static void led_init(void)
-{
+static void led_init(void) {
     gpio_reset_pin(LED_PIN);
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_PIN, 0); // Apagar inicialmente
+    gpio_set_level(LED_PIN, 0);  // Apagar inicialmente
 }
 
-static void led_on(void)
-{
-    gpio_set_level(LED_PIN, 1);
-}
+static void led_on(void) { gpio_set_level(LED_PIN, 1); }
 
-static void led_off(void)
-{
-    gpio_set_level(LED_PIN, 0);
-}
+static void led_off(void) { gpio_set_level(LED_PIN, 0); }
 
-static void led_blink(int times, int total_period_ms)
-{
+static void led_blink(int times, int total_period_ms) {
     int half_period = total_period_ms / (times * 2);
-    for (int i = 0; i < times; i++)
-    {
+    for (int i = 0; i < times; i++) {
         led_on();
         vTaskDelay(pdMS_TO_TICKS(half_period));
         led_off();
@@ -37,8 +29,7 @@ static void led_blink(int times, int total_period_ms)
     }
 }
 
-void app_main(void)
-{
+void app_main(void) {
     printf("\n========================================\n");
     printf("Self-Balancing Robot - Control System\n");
     printf("========================================\n\n");
@@ -50,8 +41,7 @@ void app_main(void)
 
     // Inicializar interfaz web primero
     ESP_LOGI(TAG, "Starting web interface...");
-    if (web_interface_init() != ESP_OK)
-    {
+    if (web_interface_init() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize web interface!");
         // Continuar de todos modos
     }
@@ -66,15 +56,13 @@ void app_main(void)
 
     // Inicializar sensores
     ESP_LOGI(TAG, "Initializing MPU6050...");
-    if (mpu6050_init() != ESP_OK)
-    {
+    if (mpu6050_init() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize MPU6050!");
         return;
     }
 
     ESP_LOGI(TAG, "Initializing encoders...");
-    if (encoder_init() != ESP_OK)
-    {
+    if (encoder_init() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize encoders!");
         return;
     }
@@ -92,8 +80,7 @@ void app_main(void)
     led_on();
     ESP_LOGI(TAG, "Calibrating MPU... (LED ON)");
 
-    if (mpu6050_calibrate(500) != ESP_OK)
-    {
+    if (mpu6050_calibrate(500) != ESP_OK) {
         ESP_LOGE(TAG, "MPU calibration failed!");
         led_off();
         return;
@@ -102,8 +89,7 @@ void app_main(void)
 
     // Inicializar sistema de control
     ESP_LOGI(TAG, "Initializing balance control...");
-    if (balance_control_init() != ESP_OK)
-    {
+    if (balance_control_init() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize balance control!");
         led_off();
         return;
@@ -123,8 +109,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Starting angle offset calibration... (LED ON)");
     led_on();
 
-    if (balance_control_calibrate_offset() != ESP_OK)
-    {
+    if (balance_control_calibrate_offset() != ESP_OK) {
         ESP_LOGE(TAG, "Angle offset calibration failed!");
         led_off();
         return;
@@ -143,8 +128,7 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     // Iniciar sistema de control
-    if (balance_control_start() != ESP_OK)
-    {
+    if (balance_control_start() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start balance control!");
         return;
     }
@@ -153,8 +137,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Robot should now try to maintain balance");
 
     // Mantener main task viva
-    while (1)
-    {
+    while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }
